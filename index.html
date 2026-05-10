@@ -1,0 +1,1477 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animador Web</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gifshot/0.3.2/gifshot.min.js"></script>
+    <style>
+        body {
+            background-color: #1a1a2e;
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+        
+        #canvas-container {
+            position: relative;
+            background-color: white; /* El fons blanc es queda al contenidor, no al llenç */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: crosshair;
+            background-image: linear-gradient(45deg, #f0f0f0 25%, transparent 25%), 
+                              linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), 
+                              linear-gradient(45deg, transparent 75%, #f0f0f0 75%), 
+                              linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+        }
+
+        #onion-skin-canvas {
+            pointer-events: none;
+        }
+
+        .tool-btn {
+            transition: all 0.2s ease;
+        }
+        
+        .tool-btn.active {
+            background-color: #3b82f6;
+            color: white;
+        }
+
+        .frame-thumb {
+            transition: all 0.2s;
+            cursor: pointer;
+            flex-shrink: 0;
+            background-color: white;
+        }
+        
+        .frame-thumb.active {
+            border: 2px solid #ef4444; /* Vermell pel capçal de reproducció */
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        }
+
+        #bg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        .palette-color {
+            transition: transform 0.1s;
+        }
+        .palette-color:hover {
+            transform: scale(1.2);
+        }
+
+        .timeline-scroll::-webkit-scrollbar {
+            height: 8px;
+        }
+        .timeline-scroll::-webkit-scrollbar-track {
+            background: #2d3748;
+            border-radius: 4px;
+        }
+        .timeline-scroll::-webkit-scrollbar-thumb {
+            background: #4a5568;
+            border-radius: 4px;
+        }
+        .timeline-scroll::-webkit-scrollbar-thumb:hover {
+            background: #718096;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <header class="bg-gray-800 p-4 shadow-md flex justify-between items-center z-10 overflow-x-auto">
+        <div class="flex items-center gap-2">
+            <i class="fas fa-film text-blue-400 text-xl"></i>
+            <h1 class="text-xl font-bold whitespace-nowrap">Animador Web</h1>
+        </div>
+        <div class="flex items-center gap-4 flex-nowrap">
+            <!-- Eines de Desa i Càrrega -->
+            <div class="flex items-center gap-2 border-r border-gray-600 pr-4">
+                <button id="btn-save" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-md font-medium transition-colors flex items-center gap-2" title="Desar Animació">
+                    <i class="fas fa-save"></i> <span class="hidden sm:inline">Desar</span>
+                </button>
+                <button id="btn-load" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-md font-medium transition-colors flex items-center gap-2" title="Carregar Animació">
+                    <i class="fas fa-folder-open"></i> <span class="hidden sm:inline">Carregar</span>
+                </button>
+                <input type="file" id="file-load" accept=".json" class="hidden">
+            </div>
+
+            <!-- Eina Exportar GIF -->
+            <button id="btn-export-gif" class="bg-pink-600 hover:bg-pink-500 text-white px-3 py-2 rounded-md font-medium transition-colors flex items-center gap-2 whitespace-nowrap" title="Exportar com a GIF animat">
+                <i class="fas fa-file-export"></i> Exportar GIF
+            </button>
+
+            <!-- Eina Tira Zoòtrop -->
+            <button id="btn-zoetrope" class="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-md font-medium transition-colors flex items-center gap-2 whitespace-nowrap" title="Exportar per a Zoòtrop (150x200 per fotograma)">
+                <i class="fas fa-print"></i> Tira Zoòtrop
+            </button>
+
+            <!-- Controls de Reproducció -->
+            <div class="flex items-center gap-2 ml-2">
+                <label for="fps-control" class="text-sm font-semibold">FPS:</label>
+                <input type="number" id="fps-control" value="12" min="1" max="60" class="w-16 bg-gray-700 text-white rounded p-1 text-center border border-gray-600 focus:outline-none focus:border-blue-500">
+            </div>
+            <button id="btn-play" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2">
+                <i class="fas fa-play"></i> Reprodueix
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 flex overflow-hidden">
+        <!-- Barra d'eines lateral -->
+        <aside class="w-16 bg-gray-900 border-r border-gray-700 flex flex-col items-center py-4 gap-3 z-10 overflow-y-auto">
+            <!-- Eines de dibuix -->
+            <button class="tool-btn active w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" data-tool="brush" title="Pinzell (B)">
+                <i class="fas fa-paint-brush"></i>
+            </button>
+            <button class="tool-btn w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" data-tool="eraser" title="Goma d'esborrar (E)">
+                <i class="fas fa-eraser"></i>
+            </button>
+            <button class="tool-btn w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" data-tool="fill" title="Omplir color (F)">
+                <i class="fas fa-fill-drip"></i>
+            </button>
+            
+            <div class="w-8 h-px bg-gray-700 my-1"></div>
+            
+            <!-- Eines de formes -->
+            <button class="tool-btn w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" data-tool="line" title="Línia (L)">
+                <i class="fas fa-minus"></i>
+            </button>
+            <button class="tool-btn w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" data-tool="rect" title="Rectangle (R)">
+                <i class="far fa-square"></i>
+            </button>
+            <button class="tool-btn w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" data-tool="circle" title="Cercle/Oval (C)">
+                <i class="far fa-circle"></i>
+            </button>
+            
+            <div class="w-8 h-px bg-gray-700 my-1"></div>
+
+            <!-- Eina de moure -->
+            <button class="tool-btn w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" data-tool="move" title="Moure (M)">
+                <i class="fas fa-arrows-alt"></i>
+            </button>
+
+            <!-- Accions de neteja i desfer -->
+            <button id="btn-undo" class="tool-btn w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" title="Desfer (Ctrl+Z)">
+                <i class="fas fa-undo"></i>
+            </button>
+            <button id="btn-clear" class="tool-btn w-10 h-10 rounded-lg bg-red-900 hover:bg-red-800 text-red-200 flex justify-center items-center" title="Paperera: Netejar el fotograma complet">
+                <i class="fas fa-trash"></i>
+            </button>
+            
+            <div class="w-8 h-px bg-gray-700 my-1"></div>
+            
+            <!-- Selector de color -->
+            <div class="flex flex-col items-center gap-1 w-full" title="Color del pinzell">
+                <input type="color" id="color-picker" value="#000000" class="w-8 h-8 rounded cursor-pointer border-0 p-0 bg-transparent">
+            </div>
+
+            <!-- Paleta personalitzada -->
+            <div class="flex flex-col items-center gap-1 w-full mt-1 px-1">
+                <button id="btn-add-color" class="text-xs text-gray-400 hover:text-white mb-1" title="Afegeix color actual"><i class="fas fa-plus"></i></button>
+                <div id="custom-palette" class="flex flex-wrap justify-center gap-1 w-full">
+                    <!-- Colors desats aniran aquí -->
+                </div>
+            </div>
+
+            <!-- Selector de gruix -->
+            <div class="flex flex-col items-center gap-1 mt-2 w-full" title="Gruix de l'eina">
+                <i class="fas fa-circle text-gray-400" style="font-size: 0.5rem;"></i>
+                <input type="number" id="size-slider" min="1" max="100" value="5" class="w-10 bg-gray-800 text-gray-300 rounded p-1 text-xs text-center border border-gray-700 focus:outline-none">
+            </div>
+
+            <div class="w-8 h-px bg-gray-700 my-1"></div>
+
+            <!-- Control Paper de Ceba -->
+            <div class="flex flex-col items-center gap-1 w-full" title="Capes de paper de ceba">
+                <button id="btn-onion" class="tool-btn active w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center" title="Paper de Ceba (O)">
+                    <i class="fas fa-layer-group"></i>
+                </button>
+                <input type="number" id="onion-layers" value="1" min="1" max="10" class="w-8 bg-gray-800 text-gray-300 rounded p-1 text-xs text-center border border-gray-700 focus:outline-none" title="Nombre de capes">
+            </div>
+
+            <div class="w-8 h-px bg-gray-700 my-1"></div>
+            
+            <!-- Sistema de Capes -->
+            <div class="flex flex-col items-center gap-1 w-full" title="Selecciona Capa">
+                <button id="btn-layer-anim" class="tool-btn active w-10 h-10 rounded-lg bg-gray-800 text-gray-300 flex justify-center items-center flex-col" title="Capa d'Animació">
+                    <i class="fas fa-running text-sm"></i>
+                </button>
+                <button id="btn-layer-bg" class="tool-btn w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 flex justify-center items-center flex-col" title="Capa de Fons">
+                    <i class="fas fa-image text-sm"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Àrea de dibuix -->
+        <div class="flex-1 bg-gray-800 p-4 flex justify-center items-center overflow-auto relative" id="workspace">
+            <div id="canvas-container" style="width: 800px; height: 600px;">
+                <canvas id="bg-canvas" width="800" height="600"></canvas>
+                <canvas id="onion-skin-canvas" width="800" height="600"></canvas>
+                <canvas id="main-canvas" width="800" height="600"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <footer class="h-32 bg-gray-900 border-t border-gray-700 p-2 flex flex-col z-10">
+        <div class="flex justify-between items-center mb-2 px-2">
+            <span class="text-sm font-semibold text-gray-400">Línia de temps</span>
+            <div class="flex gap-2">
+                <button id="btn-add-frame" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-sm flex items-center gap-1">
+                    <i class="fas fa-plus"></i> Nou
+                </button>
+                <button id="btn-dup-frame" class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1">
+                    <i class="fas fa-copy"></i> Duplica
+                </button>
+                <button id="btn-del-frame" class="bg-red-900 hover:bg-red-800 text-white px-3 py-1 rounded text-sm flex items-center gap-1">
+                    <i class="fas fa-minus"></i> Elimina
+                </button>
+            </div>
+        </div>
+        
+        <!-- Contenidor de miniatures de fotogrames -->
+        <div id="timeline" class="flex-1 flex gap-2 overflow-x-auto timeline-scroll pb-2 px-2 items-center">
+            <!-- Les miniatures s'afegiran aquí dinàmicament -->
+        </div>
+    </footer>
+
+    <!-- Modal Confirmació Esborrar -->
+    <div id="modal-clear" class="fixed inset-0 bg-black bg-opacity-60 hidden flex justify-center items-center z-50">
+        <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
+            <h2 class="text-xl font-bold mb-4 text-white">Netejar fotograma</h2>
+            <p class="text-gray-300 mb-6">Confirmeu que voleu esborrar tot el contingut d'aquest fotograma? Aquesta acció no es pot desfer fàcilment.</p>
+            <div class="flex justify-end gap-3">
+                <button id="btn-cancel-clear" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-white font-medium">Cancel·la</button>
+                <button id="btn-confirm-clear" class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded text-white font-medium">Neteja</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Referències al DOM
+            const container = document.getElementById('canvas-container');
+            const bgCanvas = document.getElementById('bg-canvas');
+            const bgCtx = bgCanvas.getContext('2d', { willReadFrequently: true });
+            const canvas = document.getElementById('main-canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            
+            const onionCanvas = document.getElementById('onion-skin-canvas');
+            const onionCtx = onionCanvas.getContext('2d', { willReadFrequently: true });
+            
+            const timeline = document.getElementById('timeline');
+            
+            // Elements de la UI
+            const colorPicker = document.getElementById('color-picker');
+            const sizeSlider = document.getElementById('size-slider');
+            const btnPlay = document.getElementById('btn-play');
+            const fpsControl = document.getElementById('fps-control');
+            const btnAddFrame = document.getElementById('btn-add-frame');
+            const btnDupFrame = document.getElementById('btn-dup-frame');
+            const btnDelFrame = document.getElementById('btn-del-frame');
+            const btnClear = document.getElementById('btn-clear');
+            const btnUndo = document.getElementById('btn-undo');
+            const btnOnion = document.getElementById('btn-onion');
+            const onionLayersInput = document.getElementById('onion-layers');
+            const btnSave = document.getElementById('btn-save');
+            const btnLoad = document.getElementById('btn-load');
+            const fileLoad = document.getElementById('file-load');
+            const btnExportGif = document.getElementById('btn-export-gif');
+            const btnZoetrope = document.getElementById('btn-zoetrope');
+            const toolBtns = document.querySelectorAll('.tool-btn[data-tool]');
+            const btnAddColor = document.getElementById('btn-add-color');
+            const customPalette = document.getElementById('custom-palette');
+            const btnLayerAnim = document.getElementById('btn-layer-anim');
+            const btnLayerBg = document.getElementById('btn-layer-bg');
+
+            // Estat de l'aplicació
+            let frames = []; // Array d'ImageData
+            let bgImageData = null; // ImageData del fons
+            let activeTargetCtx = ctx; // Context actiu (animació o fons)
+            let currentFrameIndex = 0;
+            let isPlaying = false;
+            let playInterval = null;
+            let currentTool = 'brush'; // 'brush', 'eraser', 'line', 'rect', 'circle', 'fill', 'move'
+            let isDrawing = false;
+            let startX = 0;
+            let startY = 0;
+            let lastX = 0;
+            let lastY = 0;
+            let currentX = 0;
+            let currentY = 0;
+            let drawingSnapshot = null;
+            let showOnionSkin = true;
+            let undoStack = []; // Historial d'estats pel fotograma actual
+
+            // Noves variables per a selecció i gruixos independents
+            let brushSize = 5;
+            let eraserSize = 20;
+            let activeSelection = null;
+            let isMovingSelection = false;
+            let moveOffsetX = 0;
+            let moveOffsetY = 0;
+            let clipboardSelection = null; // Per copiar/enganxar
+            let savedColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
+
+            // Inicialitzem el primer frame (transparent)
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+            bgImageData = bgCtx.getImageData(0, 0, bgCanvas.width, bgCanvas.height);
+            
+            saveCurrentFrameToMemory(); 
+            updateTimelineUI();
+            renderPalette();
+
+            function renderPalette() {
+                customPalette.innerHTML = '';
+                savedColors.forEach((color, index) => {
+                    const colorDiv = document.createElement('div');
+                    colorDiv.className = 'w-5 h-5 rounded-full cursor-pointer border border-gray-600 palette-color';
+                    colorDiv.style.backgroundColor = color;
+                    colorDiv.title = color;
+                    colorDiv.addEventListener('click', () => {
+                        colorPicker.value = color;
+                    });
+                    colorDiv.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        savedColors.splice(index, 1);
+                        renderPalette();
+                    });
+                    customPalette.appendChild(colorDiv);
+                });
+            }
+
+            btnAddColor.addEventListener('click', () => {
+                if (!savedColors.includes(colorPicker.value)) {
+                    savedColors.push(colorPicker.value);
+                    renderPalette();
+                }
+            });
+
+            btnLayerAnim.addEventListener('click', () => {
+                activeTargetCtx = ctx;
+                btnLayerAnim.classList.add('active');
+                btnLayerAnim.classList.replace('bg-gray-800', 'bg-blue-600');
+                btnLayerBg.classList.remove('active', 'bg-blue-600');
+                btnLayerBg.classList.add('bg-gray-800');
+                canvas.style.opacity = '1';
+                bgCanvas.style.opacity = '1';
+            });
+
+            btnLayerBg.addEventListener('click', () => {
+                activeTargetCtx = bgCtx;
+                btnLayerBg.classList.add('active');
+                btnLayerBg.classList.replace('bg-gray-800', 'bg-blue-600');
+                btnLayerAnim.classList.remove('active', 'bg-blue-600');
+                btnLayerAnim.classList.add('bg-gray-800');
+                // En mode fons, l'animació es veu semitransparent perquè quedi clar que pintem al fons
+                canvas.style.opacity = '0.3';
+            });
+
+            function saveStateForUndo() {
+                if (undoStack.length > 20) undoStack.shift(); // Limitem l'historial a 20 accions
+                undoStack.push({
+                    animData: ctx.getImageData(0, 0, canvas.width, canvas.height),
+                    bgData: bgCtx.getImageData(0, 0, bgCanvas.width, bgCanvas.height)
+                });
+            }
+
+            function undoAction() {
+                if (isPlaying || undoStack.length === 0) return;
+                const previousState = undoStack.pop();
+                ctx.putImageData(previousState.animData, 0, 0);
+                bgCtx.putImageData(previousState.bgData, 0, 0);
+                saveCurrentFrameToMemory();
+                bgImageData = bgCtx.getImageData(0, 0, bgCanvas.width, bgCanvas.height);
+                updateFrameThumbnail(currentFrameIndex);
+                updateOnionSkin();
+            }
+
+            function getMousePos(e) {
+                const rect = canvas.getBoundingClientRect();
+                
+                let clientX, clientY;
+                if (e.touches && e.touches.length > 0) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else if (e.changedTouches && e.changedTouches.length > 0) {
+                    clientX = e.changedTouches[0].clientX;
+                    clientY = e.changedTouches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+                
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+
+                return {
+                    x: (clientX - rect.left) * scaleX,
+                    y: (clientY - rect.top) * scaleY
+                };
+            }
+
+            function dropSelection() {
+                if (activeSelection) {
+                    activeTargetCtx.putImageData(drawingSnapshot, 0, 0);
+                    activeTargetCtx.globalCompositeOperation = 'source-over';
+                    activeTargetCtx.drawImage(activeSelection.canvas, activeSelection.x, activeSelection.y);
+                    activeSelection = null;
+                    isMovingSelection = false;
+                }
+            }
+
+            function startDrawing(e) {
+                if (isPlaying) return; 
+                e.preventDefault();
+                
+                const pos = getMousePos(e);
+                currentX = pos.x;
+                currentY = pos.y;
+                
+                if (currentTool === 'move') {
+                    if (activeSelection) {
+                        if (pos.x >= activeSelection.x && pos.x <= activeSelection.x + activeSelection.w &&
+                            pos.y >= activeSelection.y && pos.y <= activeSelection.y + activeSelection.h) {
+                            isMovingSelection = true;
+                            moveOffsetX = pos.x - activeSelection.x;
+                            moveOffsetY = pos.y - activeSelection.y;
+                            activeTargetCtx.putImageData(drawingSnapshot, 0, 0); // Restaura el fons sense la capsa de selecció
+                            return;
+                        } else {
+                            dropSelection();
+                            saveCurrentFrameToMemory(); // Fixem la selecció
+                        }
+                    }
+                    isDrawing = true;
+                    startX = pos.x;
+                    startY = pos.y;
+                    saveStateForUndo();
+                    drawingSnapshot = activeTargetCtx.getImageData(0, 0, canvas.width, canvas.height);
+                    return;
+                }
+                
+                saveStateForUndo(); // Guardem estat abans de modificar
+                
+                if (currentTool === 'fill') {
+                    floodFill(pos.x, pos.y, hexToRgb(colorPicker.value));
+                    saveCurrentFrameToMemory();
+                    updateFrameThumbnail(currentFrameIndex);
+                    return;
+                }
+                
+                isDrawing = true;
+                startX = pos.x;
+                startY = pos.y;
+                lastX = pos.x;
+                lastY = pos.y;
+                
+                drawingSnapshot = activeTargetCtx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                if (currentTool === 'brush' || currentTool === 'eraser') {
+                    draw(e, true);
+                }
+            }
+
+            function draw(e, isDot = false) {
+                if (!isDrawing && !isMovingSelection && !activeSelection) return;
+                if (isPlaying) return;
+                if (e) e.preventDefault();
+                
+                const pos = getMousePos(e);
+                currentX = pos.x;
+                currentY = pos.y;
+                
+                if (currentTool === 'move') {
+                    if (isMovingSelection && activeSelection) {
+                        activeTargetCtx.putImageData(drawingSnapshot, 0, 0);
+                        
+                        activeSelection.x = pos.x - moveOffsetX;
+                        activeSelection.y = pos.y - moveOffsetY;
+                        
+                        activeTargetCtx.globalCompositeOperation = 'source-over';
+                        activeTargetCtx.drawImage(activeSelection.canvas, activeSelection.x, activeSelection.y);
+                        
+                        activeTargetCtx.beginPath();
+                        activeTargetCtx.setLineDash([5, 5]);
+                        activeTargetCtx.strokeStyle = '#3b82f6';
+                        activeTargetCtx.lineWidth = 2;
+                        activeTargetCtx.rect(activeSelection.x, activeSelection.y, activeSelection.w, activeSelection.h);
+                        activeTargetCtx.stroke();
+                        activeTargetCtx.setLineDash([]);
+                    } else if (isDrawing) {
+                        activeTargetCtx.putImageData(drawingSnapshot, 0, 0);
+                        activeTargetCtx.beginPath();
+                        activeTargetCtx.setLineDash([5, 5]);
+                        activeTargetCtx.strokeStyle = '#3b82f6';
+                        activeTargetCtx.lineWidth = 2;
+                        activeTargetCtx.rect(startX, startY, pos.x - startX, pos.y - startY);
+                        activeTargetCtx.stroke();
+                        activeTargetCtx.setLineDash([]);
+                    }
+                    return;
+                }
+
+                if (!isDrawing) return;
+                
+                activeTargetCtx.lineCap = 'round';
+                activeTargetCtx.lineJoin = 'round';
+                activeTargetCtx.lineWidth = sizeSlider.value;
+
+                if (currentTool === 'eraser') {
+                    // Esborrem pintant amb composició 'destination-out' per fer-ho transparent
+                    activeTargetCtx.globalCompositeOperation = 'destination-out';
+                    activeTargetCtx.strokeStyle = 'rgba(0,0,0,1)';
+                    activeTargetCtx.fillStyle = 'rgba(0,0,0,1)';
+                } else {
+                    activeTargetCtx.globalCompositeOperation = 'source-over';
+                    activeTargetCtx.strokeStyle = colorPicker.value;
+                    activeTargetCtx.fillStyle = colorPicker.value;
+                }
+
+                if (currentTool === 'brush' || currentTool === 'eraser') {
+                    activeTargetCtx.beginPath();
+                    if (isDot) {
+                        activeTargetCtx.moveTo(pos.x, pos.y);
+                        activeTargetCtx.lineTo(pos.x, pos.y);
+                    } else {
+                        activeTargetCtx.moveTo(lastX, lastY);
+                        activeTargetCtx.lineTo(pos.x, pos.y);
+                    }
+                    activeTargetCtx.stroke();
+                    lastX = pos.x;
+                    lastY = pos.y;
+                } else if (currentTool === 'line') {
+                    activeTargetCtx.putImageData(drawingSnapshot, 0, 0); 
+                    activeTargetCtx.beginPath();
+                    activeTargetCtx.moveTo(startX, startY);
+                    activeTargetCtx.lineTo(pos.x, pos.y);
+                    activeTargetCtx.stroke();
+                } else if (currentTool === 'rect') {
+                    activeTargetCtx.putImageData(drawingSnapshot, 0, 0);
+                    activeTargetCtx.beginPath();
+                    activeTargetCtx.rect(startX, startY, pos.x - startX, pos.y - startY);
+                    activeTargetCtx.stroke();
+                } else if (currentTool === 'circle') {
+                    activeTargetCtx.putImageData(drawingSnapshot, 0, 0);
+                    activeTargetCtx.beginPath();
+                    const radiusX = Math.abs(pos.x - startX) / 2;
+                    const radiusY = Math.abs(pos.y - startY) / 2;
+                    const centerX = startX + (pos.x - startX) / 2;
+                    const centerY = startY + (pos.y - startY) / 2;
+                    activeTargetCtx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
+                    activeTargetCtx.stroke();
+                }
+            }
+
+            function stopDrawing(e) {
+                if (currentTool === 'move') {
+                    if (isMovingSelection) {
+                        isMovingSelection = false;
+                        activeTargetCtx.putImageData(drawingSnapshot, 0, 0);
+                        activeTargetCtx.globalCompositeOperation = 'source-over';
+                        activeTargetCtx.drawImage(activeSelection.canvas, activeSelection.x, activeSelection.y);
+                        
+                        activeTargetCtx.beginPath();
+                        activeTargetCtx.setLineDash([5, 5]);
+                        activeTargetCtx.strokeStyle = '#3b82f6';
+                        activeTargetCtx.lineWidth = 2;
+                        activeTargetCtx.rect(activeSelection.x, activeSelection.y, activeSelection.w, activeSelection.h);
+                        activeTargetCtx.stroke();
+                        activeTargetCtx.setLineDash([]);
+                    } else if (isDrawing) {
+                        isDrawing = false;
+                        const rectX = Math.min(startX, currentX);
+                        const rectY = Math.min(startY, currentY);
+                        const rectW = Math.abs(currentX - startX);
+                        const rectH = Math.abs(currentY - startY);
+                        
+                        if (rectW > 5 && rectH > 5) {
+                            activeTargetCtx.putImageData(drawingSnapshot, 0, 0);
+                            
+                            const selData = activeTargetCtx.getImageData(rectX, rectY, rectW, rectH);
+                            
+                            activeTargetCtx.globalCompositeOperation = 'destination-out';
+                            activeTargetCtx.fillStyle = 'rgba(0,0,0,1)';
+                            activeTargetCtx.fillRect(rectX, rectY, rectW, rectH);
+                            activeTargetCtx.globalCompositeOperation = 'source-over';
+                            
+                            const selCanvas = document.createElement('canvas');
+                            selCanvas.width = rectW;
+                            selCanvas.height = rectH;
+                            selCanvas.getContext('2d').putImageData(selData, 0, 0);
+                            
+                            activeSelection = { x: rectX, y: rectY, w: rectW, h: rectH, canvas: selCanvas };
+                            
+                            drawingSnapshot = activeTargetCtx.getImageData(0, 0, canvas.width, canvas.height); 
+                            
+                            activeTargetCtx.beginPath();
+                            activeTargetCtx.setLineDash([5, 5]);
+                            activeTargetCtx.strokeStyle = '#3b82f6';
+                            activeTargetCtx.lineWidth = 2;
+                            activeTargetCtx.rect(activeSelection.x, activeSelection.y, activeSelection.w, activeSelection.h);
+                            activeTargetCtx.stroke();
+                            activeTargetCtx.setLineDash([]);
+                        } else {
+                            activeTargetCtx.putImageData(drawingSnapshot, 0, 0);
+                        }
+                    }
+                    return;
+                }
+
+                if (!isDrawing) return;
+                if (e) e.preventDefault();
+                isDrawing = false;
+                
+                saveCurrentFrameToMemory();
+                updateFrameThumbnail(currentFrameIndex);
+            }
+
+            // Cubell de pintura
+            function hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16),
+                    a: 255
+                } : { r: 0, g: 0, b: 0, a: 255 };
+            }
+            
+            function floodFill(startX, startY, fillColor) {
+                const sx = Math.floor(startX);
+                const sy = Math.floor(startY);
+                
+                if (sx < 0 || sx >= canvas.width || sy < 0 || sy >= canvas.height) return;
+                
+                const imageData = activeTargetCtx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageData.data;
+                const width = canvas.width;
+                const height = canvas.height;
+                
+                function getPixelPos(x, y) { return (y * width + x) * 4; }
+                
+                const startPos = getPixelPos(sx, sy);
+                const targetColor = {
+                    r: data[startPos],
+                    g: data[startPos+1],
+                    b: data[startPos+2],
+                    a: data[startPos+3]
+                };
+                
+                function colorsMatch(r, g, b, a, color2) {
+                    const tolerance = 40; 
+                    // Considerem el fons transparent (a=0) com a color igual si estem pintant sobre fons buit
+                    if (a === 0 && color2.a === 0) return true;
+                    if (Math.abs(a - color2.a) > tolerance) return false;
+                    return Math.abs(r - color2.r) <= tolerance &&
+                           Math.abs(g - color2.g) <= tolerance &&
+                           Math.abs(b - color2.b) <= tolerance;
+                }
+                
+                if (colorsMatch(fillColor.r, fillColor.g, fillColor.b, fillColor.a, targetColor)) return;
+                
+                const pixelStack = [[sx, sy]];
+                
+                while (pixelStack.length > 0) {
+                    const newPos = pixelStack.pop();
+                    const x = newPos[0];
+                    let y = newPos[1];
+                    
+                    let pixelPos = getPixelPos(x, y);
+                    while (y >= 0 && colorsMatch(data[pixelPos], data[pixelPos+1], data[pixelPos+2], data[pixelPos+3], targetColor)) {
+                        y--;
+                        pixelPos -= width * 4;
+                    }
+                    
+                    pixelPos += width * 4;
+                    y++;
+                    
+                    let reachLeft = false;
+                    let reachRight = false;
+                    
+                    while (y < height && colorsMatch(data[pixelPos], data[pixelPos+1], data[pixelPos+2], data[pixelPos+3], targetColor)) {
+                        data[pixelPos] = fillColor.r;
+                        data[pixelPos+1] = fillColor.g;
+                        data[pixelPos+2] = fillColor.b;
+                        data[pixelPos+3] = fillColor.a;
+                        
+                        if (x > 0) {
+                            if (colorsMatch(data[pixelPos - 4], data[pixelPos - 3], data[pixelPos - 2], data[pixelPos - 1], targetColor)) {
+                                if (!reachLeft) {
+                                    pixelStack.push([x - 1, y]);
+                                    reachLeft = true;
+                                }
+                            } else if (reachLeft) {
+                                reachLeft = false;
+                            }
+                        }
+                        
+                        if (x < width - 1) {
+                            if (colorsMatch(data[pixelPos + 4], data[pixelPos + 5], data[pixelPos + 6], data[pixelPos + 7], targetColor)) {
+                                if (!reachRight) {
+                                    pixelStack.push([x + 1, y]);
+                                    reachRight = true;
+                                }
+                            } else if (reachRight) {
+                                reachRight = false;
+                            }
+                        }
+                        
+                        y++;
+                        pixelPos += width * 4;
+                    }
+                }
+                activeTargetCtx.putImageData(imageData, 0, 0);
+            }
+
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            window.addEventListener('mouseup', stopDrawing);
+
+            canvas.addEventListener('touchstart', startDrawing, { passive: false });
+            canvas.addEventListener('touchmove', draw, { passive: false });
+            window.addEventListener('touchend', stopDrawing);
+
+            function saveCurrentFrameToMemory() {
+                if (activeSelection) dropSelection(); // Fixem la selecció abans de desar
+                
+                // Desem l'estat del fons sempre per tenir-lo actualitzat
+                bgImageData = bgCtx.getImageData(0, 0, bgCanvas.width, bgCanvas.height);
+                
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                if (frames.length === 0 || currentFrameIndex >= frames.length) {
+                    frames.push(imageData);
+                } else {
+                    frames[currentFrameIndex] = imageData;
+                }
+            }
+
+            function loadFrameToCanvas(index) {
+                if (index >= 0 && index < frames.length) {
+                    ctx.putImageData(frames[index], 0, 0);
+                    currentFrameIndex = index;
+                    undoStack = []; // Resetejem l'historial en canviar de fotograma
+                    updateOnionSkin();
+                    highlightCurrentThumbnail();
+                }
+            }
+
+            function addNewFrame() {
+                saveCurrentFrameToMemory();
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                const newImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                frames.splice(currentFrameIndex + 1, 0, newImageData);
+                currentFrameIndex++;
+                
+                updateTimelineUI();
+                loadFrameToCanvas(currentFrameIndex);
+                
+                const newThumb = timeline.children[currentFrameIndex];
+                if(newThumb) newThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+
+            function duplicateFrame() {
+                saveCurrentFrameToMemory();
+                const currentImageData = frames[currentFrameIndex];
+                const clonedData = new ImageData(
+                    new Uint8ClampedArray(currentImageData.data),
+                    currentImageData.width,
+                    currentImageData.height
+                );
+                
+                frames.splice(currentFrameIndex + 1, 0, clonedData);
+                currentFrameIndex++;
+                
+                updateTimelineUI();
+                loadFrameToCanvas(currentFrameIndex);
+                
+                const newThumb = timeline.children[currentFrameIndex];
+                if(newThumb) newThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+
+            function deleteCurrentFrame() {
+                if (frames.length <= 1) {
+                    clearCurrentFrame();
+                    return;
+                }
+                
+                frames.splice(currentFrameIndex, 1);
+                
+                if (currentFrameIndex >= frames.length) {
+                    currentFrameIndex = frames.length - 1;
+                }
+                
+                updateTimelineUI();
+                loadFrameToCanvas(currentFrameIndex);
+            }
+
+            function clearCurrentFrame() {
+                if (activeSelection) dropSelection();
+                saveStateForUndo();
+                activeTargetCtx.clearRect(0, 0, canvas.width, canvas.height);
+                saveCurrentFrameToMemory();
+                updateFrameThumbnail(currentFrameIndex);
+                updateOnionSkin();
+            }
+
+            function updateOnionSkin() {
+                onionCtx.clearRect(0, 0, onionCanvas.width, onionCanvas.height);
+                
+                if (showOnionSkin && !isPlaying && currentFrameIndex > 0) {
+                    const layers = parseInt(onionLayersInput.value) || 1;
+                    
+                    // Dibuixem des del fotograma més antic al més recent
+                    for (let i = layers; i >= 1; i--) {
+                        const frameIdx = currentFrameIndex - i;
+                        if (frameIdx < 0) continue;
+                        
+                        const prevFrame = frames[frameIdx];
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = canvas.width;
+                        tempCanvas.height = canvas.height;
+                        tempCanvas.getContext('2d').putImageData(prevFrame, 0, 0);
+                        
+                        // L'opacitat disminueix segons com de lluny està el fotograma
+                        onionCtx.globalAlpha = 0.4 / i;
+                        onionCtx.drawImage(tempCanvas, 0, 0);
+                    }
+                    onionCtx.globalAlpha = 1.0; // Restaurem l'opacitat global
+                }
+            }
+
+            function toggleOnionSkin() {
+                showOnionSkin = !showOnionSkin;
+                if (showOnionSkin) {
+                    btnOnion.classList.add('active');
+                    btnOnion.classList.replace('text-gray-400', 'text-gray-300');
+                } else {
+                    btnOnion.classList.remove('active');
+                    btnOnion.classList.replace('text-gray-300', 'text-gray-400');
+                }
+                updateOnionSkin();
+            }
+
+            function updateTimelineUI() {
+                timeline.innerHTML = '';
+                
+                frames.forEach((frameData, index) => {
+                    const thumbContainer = document.createElement('div');
+                    thumbContainer.className = 'frame-thumb w-20 h-16 bg-white rounded flex-shrink-0 relative overflow-hidden flex flex-col cursor-pointer border border-gray-300';
+                    if (index === currentFrameIndex) {
+                        thumbContainer.classList.add('active');
+                    }
+                    
+                    // --- Arrossegar i Deixar Anar (Drag & Drop) ---
+                    thumbContainer.draggable = true;
+                    thumbContainer.addEventListener('dragstart', (e) => {
+                        if (isPlaying) { e.preventDefault(); return; }
+                        e.dataTransfer.setData('text/plain', index);
+                        thumbContainer.classList.add('opacity-50');
+                    });
+                    thumbContainer.addEventListener('dragend', () => {
+                        thumbContainer.classList.remove('opacity-50');
+                    });
+                    thumbContainer.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        thumbContainer.classList.add('border-blue-500', 'border-2');
+                    });
+                    thumbContainer.addEventListener('dragleave', () => {
+                        thumbContainer.classList.remove('border-blue-500', 'border-2');
+                    });
+                    thumbContainer.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        thumbContainer.classList.remove('border-blue-500', 'border-2');
+                        const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+                        const toIndex = index;
+                        
+                        if (fromIndex !== toIndex && !isNaN(fromIndex)) {
+                            if (activeSelection) dropSelection();
+                            saveCurrentFrameToMemory(); 
+                            
+                            const [movedFrame] = frames.splice(fromIndex, 1);
+                            frames.splice(toIndex, 0, movedFrame);
+                            
+                            currentFrameIndex = toIndex;
+                            updateTimelineUI();
+                            loadFrameToCanvas(currentFrameIndex);
+                        }
+                    });
+                    
+                    const numBadge = document.createElement('div');
+                    numBadge.className = 'absolute top-0 left-0 bg-black bg-opacity-50 text-white text-xs px-1 rounded-br z-10';
+                    numBadge.innerText = index + 1;
+                    
+                    const thumbCanvas = document.createElement('canvas');
+                    thumbCanvas.width = canvas.width;
+                    thumbCanvas.height = canvas.height;
+                    thumbCanvas.className = 'w-full h-full object-cover';
+                    
+                    const tCtx = thumbCanvas.getContext('2d');
+                    // Omplim de blanc pel thumbnail perquè es vegi bé
+                    tCtx.fillStyle = 'white';
+                    tCtx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
+                    
+                    // Primer el fons
+                    if (bgImageData) {
+                        const bgTemp = document.createElement('canvas');
+                        bgTemp.width = canvas.width;
+                        bgTemp.height = canvas.height;
+                        bgTemp.getContext('2d').putImageData(bgImageData, 0, 0);
+                        tCtx.drawImage(bgTemp, 0, 0);
+                    }
+
+                    // Dibuixem el contingut a sobre
+                    const tempFrameCanvas = document.createElement('canvas');
+                    tempFrameCanvas.width = canvas.width;
+                    tempFrameCanvas.height = canvas.height;
+                    tempFrameCanvas.getContext('2d').putImageData(frameData, 0, 0);
+                    tCtx.drawImage(tempFrameCanvas, 0, 0);
+                    
+                    thumbContainer.appendChild(numBadge);
+                    thumbContainer.appendChild(thumbCanvas);
+                    
+                    thumbContainer.addEventListener('click', () => {
+                        if (isPlaying) return;
+                        saveCurrentFrameToMemory(); 
+                        loadFrameToCanvas(index);
+                    });
+                    
+                    timeline.appendChild(thumbContainer);
+                });
+            }
+
+            function updateFrameThumbnail(index) {
+                if (index < 0 || index >= timeline.children.length) return;
+                
+                const thumbContainer = timeline.children[index];
+                const thumbCanvas = thumbContainer.querySelector('canvas');
+                if (thumbCanvas && frames[index]) {
+                    const tCtx = thumbCanvas.getContext('2d');
+                    tCtx.fillStyle = 'white';
+                    tCtx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
+                    
+                    const tempFrameCanvas = document.createElement('canvas');
+                    tempFrameCanvas.width = canvas.width;
+                    tempFrameCanvas.height = canvas.height;
+                    tempFrameCanvas.getContext('2d').putImageData(frames[index], 0, 0);
+                    
+                    tCtx.drawImage(tempFrameCanvas, 0, 0);
+                }
+            }
+
+            function highlightCurrentThumbnail() {
+                Array.from(timeline.children).forEach((thumb, index) => {
+                    if (index === currentFrameIndex) {
+                        thumb.classList.add('active');
+                    } else {
+                        thumb.classList.remove('active');
+                    }
+                });
+            }
+
+            function togglePlay() {
+                if (frames.length <= 1) return; 
+
+                if (isPlaying) {
+                    stopPlayback();
+                } else {
+                    startPlayback();
+                }
+            }
+
+            function startPlayback() {
+                saveCurrentFrameToMemory();
+                isPlaying = true;
+                btnPlay.innerHTML = '<i class="fas fa-stop"></i> Atura';
+                btnPlay.classList.replace('bg-green-600', 'bg-red-600');
+                btnPlay.classList.replace('hover:bg-green-500', 'hover:bg-red-500');
+                
+                onionCtx.clearRect(0, 0, onionCanvas.width, onionCanvas.height);
+
+                let playIndex = currentFrameIndex;
+                const fps = parseInt(fpsControl.value) || 12;
+                const intervalTime = 1000 / fps;
+
+                playInterval = setInterval(() => {
+                    playIndex = (playIndex + 1) % frames.length;
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.putImageData(frames[playIndex], 0, 0);
+                    
+                    currentFrameIndex = playIndex;
+                    highlightCurrentThumbnail();
+                    
+                }, intervalTime);
+            }
+
+            function stopPlayback() {
+                isPlaying = false;
+                clearInterval(playInterval);
+                btnPlay.innerHTML = '<i class="fas fa-play"></i> Reprodueix';
+                btnPlay.classList.replace('bg-red-600', 'bg-green-600');
+                btnPlay.classList.replace('hover:bg-red-500', 'hover:bg-green-500');
+                
+                updateOnionSkin();
+            }
+
+            // Funcions de desar i carregar
+            function saveAnimation() {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = canvas.width;
+                tempCanvas.height = canvas.height;
+                const tCtx = tempCanvas.getContext('2d');
+                
+                const dataUrls = frames.map(frameData => {
+                    tCtx.clearRect(0, 0, canvas.width, canvas.height);
+                    tCtx.putImageData(frameData, 0, 0);
+                    return tempCanvas.toDataURL('image/png');
+                });
+                
+                tCtx.clearRect(0, 0, canvas.width, canvas.height);
+                tCtx.putImageData(bgImageData, 0, 0);
+                const bgUrl = tempCanvas.toDataURL('image/png');
+                
+                const exportData = {
+                    fps: fpsControl.value,
+                    bgFrame: bgUrl,
+                    frames: dataUrls
+                };
+                
+                const blob = new Blob([JSON.stringify(exportData)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'animacio_guardada.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+
+            function loadAnimation() {
+                fileLoad.click();
+            }
+
+            fileLoad.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        if (data.fps) fpsControl.value = data.fps;
+                        if (data.frames && data.frames.length > 0) {
+                            frames = [];
+                            currentFrameIndex = 0;
+                            undoStack = [];
+                            timeline.innerHTML = '';
+                            
+                            let loadedCount = 0;
+                            
+                            // Carregar fons si existeix
+                            if (data.bgFrame) {
+                                const bgImg = new Image();
+                                bgImg.onload = () => {
+                                    bgCtx.clearRect(0, 0, 800, 600);
+                                    bgCtx.drawImage(bgImg, 0, 0);
+                                    bgImageData = bgCtx.getImageData(0, 0, 800, 600);
+                                    updateTimelineUI();
+                                };
+                                bgImg.src = data.bgFrame;
+                            }
+
+                            data.frames.forEach((dataUrl, index) => {
+                                const img = new Image();
+                                img.onload = () => {
+                                    const tempCanvas = document.createElement('canvas');
+                                    tempCanvas.width = 800;
+                                    tempCanvas.height = 600;
+                                    const tCtx = tempCanvas.getContext('2d');
+                                    tCtx.clearRect(0, 0, 800, 600);
+                                    tCtx.drawImage(img, 0, 0);
+                                    frames[index] = tCtx.getImageData(0, 0, 800, 600);
+                                    
+                                    loadedCount++;
+                                    if (loadedCount === data.frames.length) {
+                                        updateTimelineUI();
+                                        loadFrameToCanvas(0);
+                                    }
+                                };
+                                img.src = dataUrl;
+                            });
+                        }
+                    } catch(err) {
+                        alert("Hi ha hagut un error en carregar l'arxiu. Assegura't que és correcte.");
+                    }
+                };
+                reader.readAsText(file);
+                fileLoad.value = ''; // Reset
+            });
+
+            // Funció per generar la Tira de Zoòtrop
+            function createZoetropeStrip() {
+                if (frames.length === 0) return;
+                
+                const frameW = 150;
+                const frameH = 200;
+                
+                const stripCanvas = document.createElement('canvas');
+                stripCanvas.width = frames.length * frameW;
+                stripCanvas.height = frameH;
+                const stripCtx = stripCanvas.getContext('2d');
+                
+                // Fons blanc a la tira completa
+                stripCtx.fillStyle = 'white';
+                stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
+                
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = canvas.width;
+                tempCanvas.height = canvas.height;
+                const tCtx = tempCanvas.getContext('2d');
+                
+                frames.forEach((frameData, index) => {
+                    tCtx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    // Capa fons
+                    if (bgImageData) {
+                        const bgTemp = document.createElement('canvas');
+                        bgTemp.width = canvas.width; bgTemp.height = canvas.height;
+                        bgTemp.getContext('2d').putImageData(bgImageData, 0, 0);
+                        tCtx.drawImage(bgTemp, 0, 0);
+                    }
+
+                    // Capa animació
+                    const animTemp = document.createElement('canvas');
+                    animTemp.width = canvas.width; animTemp.height = canvas.height;
+                    animTemp.getContext('2d').putImageData(frameData, 0, 0);
+                    tCtx.drawImage(animTemp, 0, 0);
+                    
+                    // Escalar i dibuixar al seu lloc de la tira
+                    const xPos = index * frameW;
+                    stripCtx.drawImage(tempCanvas, xPos, 0, frameW, frameH);
+                    
+                    // Dibuixem una línia de separació lleugera entre fotogrames
+                    if (index > 0) {
+                        stripCtx.beginPath();
+                        stripCtx.moveTo(xPos, 0);
+                        stripCtx.lineTo(xPos, frameH);
+                        stripCtx.strokeStyle = '#e2e8f0'; // Gris suau
+                        stripCtx.lineWidth = 1;
+                        stripCtx.stroke();
+                    }
+                });
+                
+                // Descarregar la imatge
+                const a = document.createElement('a');
+                a.href = stripCanvas.toDataURL('image/png');
+                a.download = 'tira_zootrop.png';
+                a.click();
+            }
+
+            // Selecció d'eines
+            toolBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Ignorar botons d'acció de la classe tool-btn
+                    if (!btn.dataset.tool) return;
+
+                    if (activeSelection) {
+                        dropSelection();
+                        saveCurrentFrameToMemory();
+                    }
+
+                    toolBtns.forEach(b => {
+                        if (b.dataset.tool) {
+                            b.classList.remove('active', 'bg-blue-600');
+                            b.classList.add('bg-gray-800');
+                        }
+                    });
+                    
+                    btn.classList.add('active');
+                    btn.classList.remove('bg-gray-800');
+                    
+                    currentTool = btn.dataset.tool;
+                    
+                    if (currentTool === 'eraser') {
+                        canvas.style.cursor = 'cell';
+                        sizeSlider.value = eraserSize;
+                    } else if (currentTool === 'fill') {
+                        canvas.style.cursor = 'pointer';
+                    } else if (currentTool === 'move') {
+                        canvas.style.cursor = 'crosshair';
+                    } else {
+                        canvas.style.cursor = 'crosshair';
+                        if (['brush', 'line', 'rect', 'circle'].includes(currentTool)) {
+                            sizeSlider.value = brushSize;
+                        }
+                    }
+                });
+            });
+
+            // Controls
+            sizeSlider.addEventListener('input', (e) => {
+                let currentVal = parseInt(e.target.value);
+                if (isNaN(currentVal) || currentVal < 1) currentVal = 1;
+                
+                if (currentTool === 'eraser') {
+                    eraserSize = currentVal;
+                } else {
+                    brushSize = currentVal;
+                }
+            });
+
+            btnAddFrame.addEventListener('click', addNewFrame);
+            btnDupFrame.addEventListener('click', duplicateFrame);
+            btnDelFrame.addEventListener('click', deleteCurrentFrame);
+            
+            // Modal per Netejar Fotograma
+            btnClear.addEventListener('click', () => {
+                document.getElementById('modal-clear').classList.remove('hidden');
+            });
+            document.getElementById('btn-confirm-clear').addEventListener('click', () => {
+                document.getElementById('modal-clear').classList.add('hidden');
+                clearCurrentFrame();
+            });
+            document.getElementById('btn-cancel-clear').addEventListener('click', () => {
+                document.getElementById('modal-clear').classList.add('hidden');
+            });
+
+            btnUndo.addEventListener('click', undoAction);
+            btnOnion.addEventListener('click', toggleOnionSkin);
+            onionLayersInput.addEventListener('change', updateOnionSkin);
+            btnPlay.addEventListener('click', togglePlay);
+            btnSave.addEventListener('click', saveAnimation);
+            btnLoad.addEventListener('click', loadAnimation);
+            btnExportGif.addEventListener('click', () => {
+                if (frames.length === 0) return;
+                
+                btnExportGif.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processant...';
+                btnExportGif.disabled = true;
+
+                const exportImages = [];
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = canvas.width;
+                tempCanvas.height = canvas.height;
+                const tCtx = tempCanvas.getContext('2d');
+
+                frames.forEach(frameData => {
+                    tCtx.fillStyle = 'white';
+                    tCtx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    if (bgImageData) {
+                        const bgTemp = document.createElement('canvas');
+                        bgTemp.width = canvas.width; bgTemp.height = canvas.height;
+                        bgTemp.getContext('2d').putImageData(bgImageData, 0, 0);
+                        tCtx.drawImage(bgTemp, 0, 0);
+                    }
+                    
+                    const animTemp = document.createElement('canvas');
+                    animTemp.width = canvas.width; animTemp.height = canvas.height;
+                    animTemp.getContext('2d').putImageData(frameData, 0, 0);
+                    tCtx.drawImage(animTemp, 0, 0);
+
+                    exportImages.push(tempCanvas.toDataURL('image/png'));
+                });
+
+                const fps = parseInt(fpsControl.value) || 12;
+
+                gifshot.createGIF({
+                    images: exportImages,
+                    interval: 1 / fps,
+                    gifWidth: canvas.width,
+                    gifHeight: canvas.height,
+                    numWorkers: 2,
+                    sampleInterval: 10
+                }, function (obj) {
+                    if (!obj.error) {
+                        const a = document.createElement('a');
+                        a.href = obj.image;
+                        a.download = 'animacio_exportada.gif';
+                        a.click();
+                    } else {
+                        alert('Hi ha hagut un error en exportar el GIF.');
+                    }
+                    btnExportGif.innerHTML = '<i class="fas fa-file-export"></i> Exportar GIF';
+                    btnExportGif.disabled = false;
+                });
+            });
+            btnZoetrope.addEventListener('click', createZoetropeStrip);
+            
+            fpsControl.addEventListener('change', () => {
+                let val = parseInt(fpsControl.value);
+                if (val < 1) val = 1;
+                if (val > 60) val = 60;
+                fpsControl.value = val;
+                
+                if (isPlaying) {
+                    stopPlayback();
+                    startPlayback();
+                }
+            });
+
+            // Dreceres de teclat
+            window.addEventListener('keydown', (e) => {
+                if (e.target.tagName === 'INPUT') return;
+                
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                    e.preventDefault();
+                    undoAction();
+                    return;
+                }
+
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+                    if (activeSelection) {
+                        clipboardSelection = {
+                            w: activeSelection.w,
+                            h: activeSelection.h,
+                            dataUrl: activeSelection.canvas.toDataURL()
+                        };
+                    }
+                    return;
+                }
+
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+                    if (clipboardSelection) {
+                        e.preventDefault();
+                        if (activeSelection) {
+                            dropSelection();
+                        }
+                        
+                        document.querySelector('[data-tool="move"]')?.click();
+                        
+                        const img = new Image();
+                        img.onload = () => {
+                            const selCanvas = document.createElement('canvas');
+                            selCanvas.width = clipboardSelection.w;
+                            selCanvas.height = clipboardSelection.h;
+                            selCanvas.getContext('2d').drawImage(img, 0, 0);
+                            
+                            // El col·loquem al centre
+                            const pasteX = (canvas.width - clipboardSelection.w) / 2;
+                            const pasteY = (canvas.height - clipboardSelection.h) / 2;
+                            
+                            activeSelection = { x: pasteX, y: pasteY, w: clipboardSelection.w, h: clipboardSelection.h, canvas: selCanvas };
+                            
+                            saveStateForUndo();
+                            drawingSnapshot = activeTargetCtx.getImageData(0, 0, canvas.width, canvas.height);
+                            
+                            activeTargetCtx.beginPath();
+                            activeTargetCtx.setLineDash([5, 5]);
+                            activeTargetCtx.strokeStyle = '#3b82f6';
+                            activeTargetCtx.lineWidth = 2;
+                            activeTargetCtx.rect(activeSelection.x, activeSelection.y, activeSelection.w, activeSelection.h);
+                            activeTargetCtx.stroke();
+                            activeTargetCtx.setLineDash([]);
+                        };
+                        img.src = clipboardSelection.dataUrl;
+                    }
+                    return;
+                }
+
+                switch(e.key.toLowerCase()) {
+                    case 'b':
+                        document.querySelector('[data-tool="brush"]').click();
+                        break;
+                    case 'e':
+                        document.querySelector('[data-tool="eraser"]').click();
+                        break;
+                    case 'l':
+                        document.querySelector('[data-tool="line"]')?.click();
+                        break;
+                    case 'r':
+                        document.querySelector('[data-tool="rect"]')?.click();
+                        break;
+                    case 'c':
+                        document.querySelector('[data-tool="circle"]')?.click();
+                        break;
+                    case 'f':
+                        document.querySelector('[data-tool="fill"]')?.click();
+                        break;
+                    case 'm':
+                        document.querySelector('[data-tool="move"]')?.click();
+                        break;
+                    case 'o':
+                        toggleOnionSkin();
+                        break;
+                    case ' ': 
+                        e.preventDefault(); 
+                        togglePlay();
+                        break;
+                    case 'arrowright':
+                        if (!isPlaying && currentFrameIndex < frames.length - 1) {
+                            saveCurrentFrameToMemory();
+                            loadFrameToCanvas(currentFrameIndex + 1);
+                        }
+                        break;
+                    case 'arrowleft':
+                        if (!isPlaying && currentFrameIndex > 0) {
+                            saveCurrentFrameToMemory();
+                            loadFrameToCanvas(currentFrameIndex - 1);
+                        }
+                        break;
+                    case 'n': 
+                        if (!isPlaying) addNewFrame();
+                        break;
+                }
+            });
+            
+            function resizeWorkspace() {
+                const workspace = document.getElementById('workspace');
+                const container = document.getElementById('canvas-container');
+                
+                const wsWidth = workspace.clientWidth - 40; 
+                const wsHeight = workspace.clientHeight - 40;
+                const ratio = 800 / 600;
+                
+                let newWidth, newHeight;
+                
+                if (wsWidth / wsHeight > ratio) {
+                    newHeight = wsHeight;
+                    newWidth = newHeight * ratio;
+                } else {
+                    newWidth = wsWidth;
+                    newHeight = newWidth / ratio;
+                }
+                
+                if (newWidth > 800) {
+                    newWidth = 800;
+                    newHeight = 600;
+                }
+                
+                container.style.width = `${newWidth}px`;
+                container.style.height = `${newHeight}px`;
+                
+                const scale = newWidth / 800;
+                canvas.style.transform = `scale(${scale})`;
+                canvas.style.transformOrigin = 'top left';
+                onionCanvas.style.transform = `scale(${scale})`;
+                onionCanvas.style.transformOrigin = 'top left';
+                
+                // Correcció: Ara també escalem el llenç de fons perquè les coordenades quadrin visualment
+                bgCanvas.style.transform = `scale(${scale})`;
+                bgCanvas.style.transformOrigin = 'top left';
+            }
+            
+            window.addEventListener('resize', resizeWorkspace);
+            setTimeout(resizeWorkspace, 100);
+
+        });
+    </script>
+</body>
+</html>
