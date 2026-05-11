@@ -111,6 +111,11 @@
                     <i class="fas fa-folder-open"></i> <span class="hidden sm:inline">Carregar</span>
                 </button>
                 <input type="file" id="file-load" accept=".json" class="hidden">
+                
+                <button id="btn-import-img" class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded-md font-medium transition-colors flex items-center gap-2 ml-1" title="Importar Imatge o GIF">
+                    <i class="fas fa-image"></i> <span class="hidden sm:inline">Importar</span>
+                </button>
+                <input type="file" id="image-load" accept="image/*" class="hidden">
             </div>
 
             <!-- Eina Exportar GIF -->
@@ -268,7 +273,7 @@
         </div>
     </footer>
 
-    <!-- Modal Confirmació Esborrar -->
+    <!-- Modal Confirmació Netejar -->
     <div id="modal-clear" class="fixed inset-0 bg-black bg-opacity-60 hidden flex justify-center items-center z-50">
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
             <h2 class="text-xl font-bold mb-4 text-white">Netejar fotograma</h2>
@@ -276,6 +281,18 @@
             <div class="flex justify-end gap-3">
                 <button id="btn-cancel-clear" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-white font-medium">Cancel·la</button>
                 <button id="btn-confirm-clear" class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded text-white font-medium">Neteja</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Confirmació Eliminar Fotograma -->
+    <div id="modal-delete" class="fixed inset-0 bg-black bg-opacity-60 hidden flex justify-center items-center z-50">
+        <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
+            <h2 class="text-xl font-bold mb-4 text-white">Eliminar fotograma</h2>
+            <p class="text-gray-300 mb-6">Confirmeu que voleu eliminar completament aquest fotograma de la línia de temps?</p>
+            <div class="flex justify-end gap-3">
+                <button id="btn-cancel-delete" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-white font-medium">Cancel·la</button>
+                <button id="btn-confirm-delete" class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded text-white font-medium">Elimina</button>
             </div>
         </div>
     </div>
@@ -309,6 +326,8 @@
             const btnSave = document.getElementById('btn-save');
             const btnLoad = document.getElementById('btn-load');
             const fileLoad = document.getElementById('file-load');
+            const btnImportImg = document.getElementById('btn-import-img');
+            const imageLoad = document.getElementById('image-load');
             const btnExportGif = document.getElementById('btn-export-gif');
             const btnZoetrope = document.getElementById('btn-zoetrope');
             const toolBtns = document.querySelectorAll('.tool-btn[data-tool]');
@@ -1086,7 +1105,149 @@
                 updateOnionSkin();
             }
 
-            // Funcions de desar i carregar
+            // Funcions per importar arxius i imatges
+            btnImportImg.addEventListener('click', () => {
+                imageLoad.click();
+            });
+
+            imageLoad.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+                
+                if (isGif) {
+                    // Importem la llibreria de manera dinàmica només quan es necessita
+                    import('https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/+esm').then(({ parseGIF, decompressFrames }) => {
+                        const reader = new FileReader();
+                        reader.onload = function(event) {
+                            try {
+                                const arrayBuffer = event.target.result;
+                                const gif = parseGIF(arrayBuffer);
+                                const decompressedFrames = decompressFrames(gif, true);
+                                
+                                if (decompressedFrames && decompressedFrames.length > 0) {
+                                    saveCurrentFrameToMemory();
+                                    
+                                    const gifW = decompressedFrames[0].dims.width;
+                                    const gifH = decompressedFrames[0].dims.height;
+                                    
+                                    let frameBuffer = document.createElement('canvas');
+                                    frameBuffer.width = gifW; 
+                                    frameBuffer.height = gifH;
+                                    let fbCtx = frameBuffer.getContext('2d', { willReadFrequently: true });
+
+                                    let tempCanvas = document.createElement('canvas');
+                                    tempCanvas.width = canvas.width; 
+                                    tempCanvas.height = canvas.height;
+                                    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
+                                    const scale = Math.min(tempCanvas.width / gifW, tempCanvas.height / gifH);
+                                    const finalW = gifW * scale;
+                                    const finalH = gifH * scale;
+                                    const finalX = (tempCanvas.width - finalW) / 2;
+                                    const finalY = (tempCanvas.height - finalH) / 2;
+
+                                    let previousFrameImageData = null;
+
+                                    decompressedFrames.forEach((frame, i) => {
+                                        // Guardem l'estat si cal restaurar el fons posteriorment
+                                        if (frame.disposalType === 3) {
+                                            previousFrameImageData = fbCtx.getImageData(0, 0, gifW, gifH);
+                                        }
+
+                                        // Validem mides abans de dibuixar
+                                        if (frame.dims.width > 0 && frame.dims.height > 0) {
+                                            const patchCanvas = document.createElement('canvas');
+                                            patchCanvas.width = frame.dims.width;
+                                            patchCanvas.height = frame.dims.height;
+                                            const patchCtx = patchCanvas.getContext('2d');
+                                            const frameImageData = patchCtx.createImageData(frame.dims.width, frame.dims.height);
+                                            frameImageData.data.set(frame.patch);
+                                            patchCtx.putImageData(frameImageData, 0, 0);
+
+                                            fbCtx.drawImage(patchCanvas, frame.dims.left, frame.dims.top);
+                                        }
+
+                                        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+                                        tempCtx.drawImage(frameBuffer, finalX, finalY, finalW, finalH);
+                                        
+                                        const newFrameData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                                        
+                                        // Inserim els fotogrames a la línia de temps
+                                        if (i === 0) {
+                                            frames[currentFrameIndex] = newFrameData;
+                                        } else {
+                                            frames.splice(currentFrameIndex + i, 0, newFrameData);
+                                        }
+
+                                        // Neteja per preparar el llenç segons la disposició del GIF
+                                        if (frame.disposalType === 2) {
+                                            fbCtx.clearRect(frame.dims.left, frame.dims.top, frame.dims.width, frame.dims.height);
+                                        } else if (frame.disposalType === 3 && previousFrameImageData) {
+                                            fbCtx.putImageData(previousFrameImageData, 0, 0);
+                                        }
+                                    });
+                                    
+                                    currentFrameIndex = currentFrameIndex + decompressedFrames.length - 1;
+                                    updateTimelineUI();
+                                    loadFrameToCanvas(currentFrameIndex);
+                                } else {
+                                    loadAsNormalImage(file);
+                                }
+                            } catch(err) {
+                                console.error("Error processant el GIF", err);
+                                loadAsNormalImage(file);
+                            }
+                        };
+                        reader.readAsArrayBuffer(file);
+                    }).catch(err => {
+                        console.error("No s'ha pogut carregar el mòdul d'extracció", err);
+                        loadAsNormalImage(file);
+                    });
+                } else {
+                    loadAsNormalImage(file);
+                }
+                
+                imageLoad.value = ''; // Netejar el camp perquè es pugui carregar de nou la mateixa imatge
+            });
+
+            // Funció per carregar PNG i JPG normals directament al llenç actual
+            function loadAsNormalImage(file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const img = new Image();
+                    img.onload = () => {
+                        saveStateForUndo();
+                        
+                        let w = img.width;
+                        let h = img.height;
+                        const maxW = canvas.width;
+                        const maxH = canvas.height;
+                        
+                        // Escalar mantenint la proporció si és més gran que el llenç
+                        if (w > maxW || h > maxH) {
+                            const ratio = Math.min(maxW / w, maxH / h);
+                            w *= ratio;
+                            h *= ratio;
+                        }
+                        
+                        const x = (canvas.width - w) / 2;
+                        const y = (canvas.height - h) / 2;
+                        
+                        // Ho dibuixa a la capa activa (animació o fons)
+                        activeTargetCtx.drawImage(img, x, y, w, h);
+                        
+                        saveCurrentFrameToMemory();
+                        updateFrameThumbnail(currentFrameIndex);
+                        updateOnionSkin();
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+
+            // Funcions de desar i carregar animacions JSON originals
             function saveAnimation() {
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = canvas.width;
@@ -1301,9 +1462,8 @@
 
             btnAddFrame.addEventListener('click', addNewFrame);
             btnDupFrame.addEventListener('click', duplicateFrame);
-            btnDelFrame.addEventListener('click', deleteCurrentFrame);
             
-            // Modal per Netejar Fotograma
+            // Modal per Netejar Fotograma (Paperera)
             btnClear.addEventListener('click', () => {
                 document.getElementById('modal-clear').classList.remove('hidden');
             });
@@ -1315,12 +1475,29 @@
                 document.getElementById('modal-clear').classList.add('hidden');
             });
 
+            // Modal per Eliminar Fotograma (Línia de temps)
+            btnDelFrame.addEventListener('click', () => {
+                if (frames.length <= 1) {
+                    // Si només queda un fotograma, mostrem la modal de netejar, ja que no es pot eliminar l'últim
+                    document.getElementById('modal-clear').classList.remove('hidden');
+                } else {
+                    document.getElementById('modal-delete').classList.remove('hidden');
+                }
+            });
+            document.getElementById('btn-confirm-delete').addEventListener('click', () => {
+                document.getElementById('modal-delete').classList.add('hidden');
+                deleteCurrentFrame();
+            });
+            document.getElementById('btn-cancel-delete').addEventListener('click', () => {
+                document.getElementById('modal-delete').classList.add('hidden');
+            });
+
             btnUndo.addEventListener('click', undoAction);
             btnOnion.addEventListener('click', toggleOnionSkin);
             onionLayersInput.addEventListener('change', updateOnionSkin);
             btnPlay.addEventListener('click', togglePlay);
             btnSave.addEventListener('click', saveAnimation);
-            btnLoad.addEventListener('click', loadAnimation);
+            
             btnExportGif.addEventListener('click', () => {
                 if (frames.length === 0) return;
                 
